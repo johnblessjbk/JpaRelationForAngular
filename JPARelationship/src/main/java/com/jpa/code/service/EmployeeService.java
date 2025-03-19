@@ -1,51 +1,55 @@
 package com.jpa.code.service;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 import com.jpa.code.dto.EmployeeDTO;
 import com.jpa.code.entity.Employee;
+import com.jpa.code.exception.DuplicateResourceException;
+import com.jpa.code.exception.ResourceNotFoundException;
 import com.jpa.code.repository.EmployeeRepo;
+import com.jpa.code.utility.ErrorMessages;
 
 import org.modelmapper.ModelMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+
 @Service
 public class EmployeeService {
 
     private static final Logger logger = LoggerFactory.getLogger(EmployeeService.class);
 
-    @Autowired
-    private EmployeeRepo employeeRepo;
+    private final EmployeeRepo employeeRepo;
+    private final ModelMapper modelMapper;
 
-    public void addEmployee(EmployeeDTO empDTO) {
-        Employee emp = mapToEmployee(empDTO); // Manually map DTO to Entity
-        validateEmp(emp);
-        employeeRepo.save(emp);
-        logger.info("Employee added successfully: {}", emp.getName());
+    @Autowired
+    public EmployeeService(EmployeeRepo employeeRepo, ModelMapper modelMapper) {
+        this.employeeRepo = employeeRepo;
+        this.modelMapper = modelMapper;
     }
 
-    private void validateEmp(Employee employee) {
-        if (employeeRepo.existsByName(employee.getName())) {
-            throw new IllegalArgumentException("Employee name already exists: " + employee.getName());
-        }
-        if (employeeRepo.existsByEmpid(employee.getEmpid())) {
-            throw new IllegalArgumentException("Employee ID already exists: " + employee.getEmpid());
-        }
+    public void addEmployee(EmployeeDTO empDTO) {
+        Employee emp = mapToEmployee(empDTO);
+        validateEmp(emp, true);
+        employeeRepo.save(emp);
+        logger.info("Employee added successfully: ID={}, Name={}", emp.getId(), emp.getName());
     }
 
     public List<EmployeeDTO> getAllEmployees() {
         return employeeRepo.findAll().stream()
-                .map(this::mapToEmployeeDTO) // Manually map Entity to DTO
+                .map(this::mapToEmployeeDTO) // Map each Employee to EmployeeDTO
                 .collect(Collectors.toList());
-    }
+        }
 
     public void deleteEmployeeById(Long id) {
         if (!employeeRepo.existsById(id)) {
-            throw new IllegalArgumentException("Employee not found with ID: " + id);
+            throw new ResourceNotFoundException(ErrorMessages.EMPLOYEE_NOT_FOUND + id);
         }
         employeeRepo.deleteById(id);
         logger.info("Employee deleted with ID: {}", id);
@@ -53,35 +57,49 @@ public class EmployeeService {
 
     public void updateEmployee(EmployeeDTO empDTO, Long id) {
         Employee existingEmp = employeeRepo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Employee not found with ID: " + id));
-        
-        // Manually update fields from DTO to Entity
-        existingEmp.setEmpid(empDTO.getEmpid());
-        existingEmp.setName(empDTO.getName());
-        existingEmp.setJobrole(empDTO.getJobrole());
+                .orElseThrow(() -> new ResourceNotFoundException(ErrorMessages.EMPLOYEE_NOT_FOUND + id));
 
-        validateEmp(existingEmp); // Validate the updated employee
+        modelMapper.map(empDTO, existingEmp); // Update fields using ModelMapper
+        validateEmp(existingEmp, false);
         employeeRepo.save(existingEmp);
-
-        logger.info("Employee updated successfully: {}", id);
+        logger.info("Employee updated successfully: ID={}, Name={}", existingEmp.getId(), existingEmp.getName());
     }
 
-    // Helper method to map EmployeeDTO to Employee
+    public Page<Employee> getEmployeesByName(String searchValue, Pageable pageable) {
+        if (searchValue == null || searchValue.isEmpty()) {
+            return employeeRepo.findAll(pageable);
+        }
+        return employeeRepo.findByNameContainingIgnoreCaseOrEmpidContainingIgnoreCaseOrJobroleContainingIgnoreCase(
+                searchValue, searchValue, searchValue, pageable);
+    }
+
+    public Optional<Employee> getEmpById(Long id) {
+        return employeeRepo.findById(id);
+    }
+
+    private void validateEmp(Employee employee, Boolean isAddType) {
+        if (isAddType) {
+            if (employeeRepo.existsByName(employee.getName())) {
+                throw new DuplicateResourceException(ErrorMessages.DUPLICATE_NAME + employee.getName());
+            }
+            if (employeeRepo.existsByEmpid(employee.getEmpid())) {
+                throw new DuplicateResourceException(ErrorMessages.DUPLICATE_EMPID + employee.getEmpid());
+            }
+        } else {
+            if (employeeRepo.existsByNameAndIdNot(employee.getName(), employee.getId())) {
+                throw new DuplicateResourceException(ErrorMessages.DUPLICATE_NAME + employee.getName());
+            }
+            if (employeeRepo.existsByEmpidAndIdNot(employee.getEmpid(), employee.getId())) {
+                throw new DuplicateResourceException(ErrorMessages.DUPLICATE_EMPID + employee.getEmpid());
+            }
+        }
+    }
+
     private Employee mapToEmployee(EmployeeDTO empDTO) {
-        Employee emp = new Employee();
-        emp.setEmpid(empDTO.getEmpid());
-        emp.setName(empDTO.getName());
-        emp.setJobrole(empDTO.getJobrole());
-        return emp;
+        return modelMapper.map(empDTO, Employee.class);
     }
 
-    // Helper method to map Employee to EmployeeDTO
     private EmployeeDTO mapToEmployeeDTO(Employee emp) {
-        EmployeeDTO empDTO = new EmployeeDTO();
-        empDTO.setId(emp.getId());
-        empDTO.setEmpid(emp.getEmpid());
-        empDTO.setName(emp.getName());
-        empDTO.setJobrole(emp.getJobrole());
-        return empDTO;
+        return modelMapper.map(emp, EmployeeDTO.class);
     }
 }

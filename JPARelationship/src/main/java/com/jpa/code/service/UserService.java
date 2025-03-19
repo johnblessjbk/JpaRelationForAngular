@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
@@ -17,10 +18,12 @@ import com.jpa.code.dto.UserWithRolesRequest;
 import com.jpa.code.entity.Address;
 import com.jpa.code.entity.Role;
 import com.jpa.code.entity.UserDetails;
+import com.jpa.code.exception.ResourceNotFoundException;
 import com.jpa.code.repository.AddressRepo;
 import com.jpa.code.repository.LoginRepo;
 import com.jpa.code.repository.RoleRepo;
 import com.jpa.code.repository.UserRepo;
+import com.jpa.code.utility.ErrorMessages;
 
 import jakarta.transaction.Transactional;
 
@@ -38,6 +41,7 @@ public class UserService {
 	private AddressRepo addressRepo;
 	@Autowired
 	private RoleRepo roleRepo;
+
 
 	public void insertUserData(UserDetails user) {
 		validateUser(user);
@@ -90,7 +94,9 @@ public class UserService {
 		List<UserDetails> userDetailsList = userRepo.findAll();
 		return userDetailsList.stream().map(this::convertToUserResponse).collect(Collectors.toList());
 	}
-
+public List<Role> getAllRoleList(){
+	return roleRepo.findAll();
+}
 	private UserResponse convertToUserResponse(UserDetails userDetails) {
 		UserResponse userResponse = new UserResponse();
 		userResponse.setId(userDetails.getId());
@@ -144,5 +150,9 @@ public class UserService {
 		} else {
 			return Optional.empty();
 		}
+	}
+
+	public Role getRoleById(long id) {
+		return roleRepo.findById(id).orElseThrow(()->new ResourceNotFoundException(ErrorMessages.ROLE_NOT_FOUND+id));
 	}
 }
